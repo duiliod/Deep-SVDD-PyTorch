@@ -105,3 +105,8 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk
+
+#data ignore
+data/*
+log/*
+data3d/*
