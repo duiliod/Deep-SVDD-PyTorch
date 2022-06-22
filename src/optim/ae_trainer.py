@@ -78,10 +78,9 @@ class AETrainer(BaseTrainer):
             epoch_start_time = time.time()
 
             #For hippocampal MRI
-            # for batch_images in tqdm(load_mri_images("/home/duilio/Downloads/seg/cropped_data", 8)):
-            #     print((batch_images.shape))  #torch.Size([8, 1, 48, 48, 48])
-            for data in train_loader:
-                inputs, _, _ = data #all labels are 0 cuz are the normal class
+            for batch_images in tqdm(load_mri_images("/home/duilio/Downloads/seg/cropped_data", 8)):
+                # print((batch_images.shape))  #torch.Size([8, 1, 48, 48, 48])
+                inputs = batch_images #all labels are 0 cuz are the normal class
                 # ae training data shape torch.Size([200, 1, 28, 28]) batch size 200
                 inputs = inputs.to(self.device)
 
