@@ -1,0 +1,4 @@
+Type: VisdomLogger
+save_dir: lightning_logs
+# Visdom server. 'localhost' for local runs; use the cluster's Visdom address when training there.
+server: localhost

@@ -1,0 +1,16 @@
+# NIfTI masks: ~14 GB per structure, not suitable for git
+data/*/hippocampi_images/
+
+# training outputs
+src/results/
+logs/
+lightning_logs/
+*.ckpt
+*.out
+data_losses.npy
+
+# python / notebooks
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+*.ipynb
