@@ -1,0 +1,5 @@
+Type: TensorBoardLogger
+# Writes to disk only (no network needed). Keeps the
+# "<save_dir>/<experiment name>/version_N/checkpoints" layout that lightning.py
+# expects, relative to the folder training is launched from (runs/<STRUCT>/trainer).
+save_dir: ../results

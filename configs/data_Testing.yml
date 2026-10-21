@@ -1,4 +1,4 @@
-splits: /home/ddeangeli/deepsvdd/split/hippocampi_testing.yml
+splits: "{root}/split/hippocampi_testing.yml"
 workers: 8
 batch_size: 12
 Dataset:

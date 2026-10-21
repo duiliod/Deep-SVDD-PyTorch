@@ -6,16 +6,32 @@ from torch import Tensor
 from .string_processing import list_to_string
 
 
-def _substitute_placeholders(node, structure):
-    """Recursively replace '{structure}' placeholders in any string found
-    inside a (possibly nested) dict/list structure, so that a single config
-    or split file can be shared across brain structures (e.g. THA, PAL, PUT,
-    HIP, AMY) and resolve to the right paths at load time.
+def get_root():
+    """Directory that the '{root}' placeholder resolves to.
+
+    It is the DEEPSVDD_ROOT environment variable when set (it must contain the
+    data/, split/ and configs/ folders), otherwise the root of this repository.
+    This keeps configs and splits free of machine-specific absolute paths.
     """
-    if structure is None:
-        return node
+    root = os.environ.get('DEEPSVDD_ROOT')
+    if root:
+        return os.path.abspath(root)
+    here = os.path.dirname(os.path.abspath(__file__))  # <repo>/src/trainer/utils
+    return os.path.abspath(os.path.join(here, '..', '..', '..'))
+
+
+def _substitute_placeholders(node, structure):
+    """Recursively replace the '{root}' and '{structure}' placeholders in any
+    string found inside a (possibly nested) dict/list structure, so that a
+    single config or split file can be shared across brain structures (e.g.
+    THA, PAL, PUT, HIP, AMY) and across machines, and resolve to the right
+    paths at load time.
+    """
     if isinstance(node, str):
-        return node.replace('{structure}', structure)
+        node = node.replace('{root}', get_root())
+        if structure is not None:
+            node = node.replace('{structure}', structure)
+        return node
     if isinstance(node, dict):
         return {k: _substitute_placeholders(v, structure) for k, v in node.items()}
     if isinstance(node, list):

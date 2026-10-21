@@ -28,7 +28,7 @@ Train:
     metric: Loss
   - !include plot.yml
 Logger:
-- !include visdom.yml
+- !include tensorboard.yml
 Predict: !include predict_onestep.yml
 Callbacks:
 - Type: ModelCheckpoint

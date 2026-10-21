@@ -1,6 +1,7 @@
 from shlex import split
 
 import yaml
+from utils import yaml as yaml_utils
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from torch.utils.data import ConcatDataset
@@ -45,7 +46,8 @@ class DataModule(LightningDataModule):
         
         with open(self._splits, 'r') as split_file:
             splits = yaml.load(split_file, Loader=yaml.FullLoader)
-            path = splits['path']
+            # the split stores the data folder as "{root}/data/<STRUCT>/hippocampi_images"
+            path = splits['path'].replace('{root}', yaml_utils.get_root())
 
         config = self._dataset_config
         val_config = {**config, **self._val_dataset_config}
