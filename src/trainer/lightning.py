@@ -25,6 +25,36 @@ def find_last_checkpoint(experiment_name):
     return max(candidates, key=os.path.getmtime)
 
 
+def load_pretrained_encoder(model_encoder, checkpoint):
+    """Initialize the Deep SVDD network with the weights of the pretrained autoencoder.
+
+    The checkpoint is a PyTorch Lightning checkpoint of the autoencoder's LightningModule,
+    so every key carries the wrapper's '_model.' prefix (e.g. '_model.encoder.fc1.weight'),
+    while the SVDD network is a bare model with keys like 'encoder.fc1.weight'. The prefix
+    is removed before matching; keys are only copied when name AND shape match. The layers
+    that exist only in the SVDD head (fcSVDD1/fcSVDD2) keep their random initialization.
+
+    Raises RuntimeError when nothing could be loaded, instead of silently training from
+    random weights.
+    """
+    ckpt = torch.load(checkpoint, map_location='cpu')
+    prefix = '_model.'
+    ae_state = {(k[len(prefix):] if k.startswith(prefix) else k): v for k, v in ckpt['state_dict'].items()}
+
+    net_dict = model_encoder.state_dict()
+    loaded = [k for k, v in ae_state.items() if k in net_dict and net_dict[k].shape == v.shape]
+    if not loaded:
+        raise RuntimeError('None of the %d autoencoder weights in %s match the Deep SVDD network '
+                           '(first checkpoint keys: %s; first network keys: %s)'
+                           % (len(ae_state), checkpoint, list(ae_state)[:3], list(net_dict)[:3]))
+    net_dict.update({k: ae_state[k] for k in loaded})
+    model_encoder.load_state_dict(net_dict)
+
+    not_loaded = [k for k in net_dict if k not in loaded]
+    print('Loaded %d of %d tensors of the Deep SVDD network from the autoencoder.' % (len(loaded), len(net_dict)))
+    print('Keeping the random initialization for: %s' % not_loaded)
+
+
 def getModules(config, fast_dev_run=False, accelerator="gpu") -> Tuple[Trainer, torch.nn.Module, DataModule.DataModule]:
     dataModule = DataModule.get(config['DataModule'])
     model = Models.get(config['Model'])
@@ -60,11 +90,7 @@ def getModulesSVDD(config, fast_dev_run=False, accelerator="gpu", pretrained=Tru
         print('Initialize the Deep SVDD network weights from the encoder weights of the pretraining autoencoder. ')
         checkpoint = find_last_checkpoint(config['name'][:-4])
         print(checkpoint)
-        model = torch.load(checkpoint)
-        net_dict = model_encoder.state_dict()
-        ae_net_dict = {k: v for k, v in model['state_dict'].items() if k in net_dict}
-        net_dict.update(ae_net_dict)
-        model_encoder.load_state_dict(net_dict)
+        load_pretrained_encoder(model_encoder, checkpoint)
         print('Finish loading...')
 
     trainFactory = TrainFactorySVDD()
