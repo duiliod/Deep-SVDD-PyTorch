@@ -1,3 +1,5 @@
+import glob
+import os
 from logging import logMultiprocessing
 from typing import Tuple
 import torch
@@ -6,6 +8,21 @@ import DataModule
 import Models
 from Training import TrainFactory
 from Training import TrainFactorySVDD
+
+
+def find_last_checkpoint(experiment_name):
+    """Path of the most recent ../results/<experiment_name>/version_*/checkpoints/last.ckpt.
+
+    The version number is chosen by the logger (the Visdom logger derives it from the
+    experiments already stored in the Visdom server, TensorBoard from the folders on
+    disk), so it is not always 0. The pretrained autoencoder that was just trained is
+    the most recently written checkpoint.
+    """
+    pattern = os.path.join('..', 'results', experiment_name, 'version_*', 'checkpoints', 'last.ckpt')
+    candidates = glob.glob(pattern)
+    if not candidates:
+        raise FileNotFoundError('No pretrained autoencoder checkpoint found: ' + pattern)
+    return max(candidates, key=os.path.getmtime)
 
 
 def getModules(config, fast_dev_run=False, accelerator="gpu") -> Tuple[Trainer, torch.nn.Module, DataModule.DataModule]:
@@ -41,7 +58,7 @@ def getModulesSVDD(config, fast_dev_run=False, accelerator="gpu", pretrained=Tru
 
     if pretrained:
         print('Initialize the Deep SVDD network weights from the encoder weights of the pretraining autoencoder. ')
-        checkpoint = '../results/' + config['name'][:-4] + '/version_0/checkpoints/last.ckpt'
+        checkpoint = find_last_checkpoint(config['name'][:-4])
         print(checkpoint)
         model = torch.load(checkpoint)
         net_dict = model_encoder.state_dict()
