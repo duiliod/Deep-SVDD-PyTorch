@@ -85,6 +85,8 @@ def auc(y, score, mask):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--structure', required=True, choices=['THA', 'PAL', 'PUT', 'HIP', 'AMY'])
+    parser.add_argument('--config', default=CONFIG, help='SVDD config file in configs/ (default: %(default)s); '
+                        'its name (without .yml) gives the results folder <structure>_<name>')
     parser.add_argument('--checkpoint', default=None, help='SVDD checkpoint (default: the latest last.ckpt)')
     parser.add_argument('--results', default=os.path.join(ROOT, 'src', 'results'), help='results folder')
     parser.add_argument('--workers', type=int, default=6)
@@ -92,7 +94,8 @@ def main():
 
     ckpt_path = args.checkpoint
     if ckpt_path is None:
-        pattern = os.path.join(args.results, '%s_AE_*SVDD' % args.structure, 'version_*', 'checkpoints', 'last.ckpt')
+        exp = os.path.splitext(args.config)[0]
+        pattern = os.path.join(args.results, '%s_%s' % (args.structure, exp), 'version_*', 'checkpoints', 'last.ckpt')
         found = glob.glob(pattern)
         if not found:
             sys.exit('no checkpoint found: ' + pattern)
@@ -101,7 +104,7 @@ def main():
     ckpt = torch.load(ckpt_path, map_location='cpu')
     center = ckpt.get('svdd_center')
 
-    cfg = yaml.load(os.path.join(ROOT, 'configs', CONFIG), structure=args.structure)
+    cfg = yaml.load(os.path.join(ROOT, 'configs', args.config), structure=args.structure)
     dm = DataModule.get(cfg['DataModule'])
     dm.setup()
     net = Models.get_SVDD(cfg['Model'])

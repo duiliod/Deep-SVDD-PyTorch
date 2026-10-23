@@ -93,6 +93,30 @@ la estructura se entrena de nuevo desde cero (`lightning.py` carga el autoencode
 - Variables de `scripts/train_one.sh`: `PYTHON_BIN`, `CONDA_ENV`, `CONDA_SH`, `DEEPSVDD_ROOT`,
   `RUNS_DIR`, `CONFIG_DIR`, `EXTRA_ARGS`, `FORCE`.
 
+## Variante con el volumen como entrada (`VolumeDifference`)
+
+`configs/AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolume.yml` es igual
+al config SVDD normal pero con `VolumeDifference: True`: el volumen de cada estructura
+(voxels de la máscara) se concatena a las features de su hemisferio antes de la capa
+`fcSVDD1`. Los volúmenes se normalizan como z-score con la media y el desvío del conjunto
+de entrenamiento (se calculan al inicializar `c` y quedan en el checkpoint).
+
+Los scripts de esta rama (`scripts/train_one.sh`, Slurm) todavía usan siempre el config SVDD
+normal; el lanzador que permite elegir `SVDD_CONFIG` y `SKIP_AE=1` está en la rama `local`
+(`run_all_structures.sh`). Con `train_SVDD.py` se puede lanzar a mano desde `src/trainer`
+con `--configSVDD` apuntando al config `...SVDDVolume.yml` y `--skip-ae-training`.
+Para evaluarla por fuente (OASIS / ADNI / HEC) y contra las referencias sin red:
+
+```bash
+cd src/trainer
+python ../../tools/evaluate_svdd.py --structure HIP \
+  --config AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolume.yml
+```
+
+`train_SVDD.py --skip-ae-training` / `SKIP_AE=1` hacen que el SVDD parta del último
+checkpoint del autoencoder de esa estructura en lugar de entrenar uno nuevo.
+
+
 ## Logs: TensorBoard en lugar de Visdom
 
 Los configs usan `TensorBoardLogger` (`configs/tensorboard.yml`), que solo escribe a disco.
