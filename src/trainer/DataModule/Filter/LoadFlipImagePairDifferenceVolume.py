@@ -44,9 +44,11 @@ class LoadFlipImagePairDifferenceVolume(Filter):
             imagepair = nb.load(os.path.join(self._input_path, self._subfolder, new_filename + '.nii'))
             imagepair = np.array(imagepair.get_fdata())
 
+            # volumes follow the channel order: (flipped left, right) unless canonical_order swaps them
             left_volume, right_volume = np.count_nonzero(image), np.count_nonzero(imagepair)
             if self._canonical_order:
                 image, imagepair = imagepair, image   # (right, flipped left), like a 'right' entry
+                left_volume, right_volume = right_volume, left_volume
 
 
         else:
@@ -55,7 +57,11 @@ class LoadFlipImagePairDifferenceVolume(Filter):
             imagepair = np.array(imagepair.get_fdata())
             imagepair = np.flip(imagepair,axis=0).copy()
 
-            left_volume, right_volume = np.count_nonzero(imagepair), np.count_nonzero(image)
+            # the channels of a 'right' entry are (right, flipped left): the volumes are returned in
+            # the order of the channels. The network gives the first volume to the first channel, so
+            # with the old order (left, right) every right entry (all test entries) got the volume of
+            # the other hemisphere.
+            left_volume, right_volume = np.count_nonzero(image), np.count_nonzero(imagepair)
         # print(filename,new_filename)
 
         

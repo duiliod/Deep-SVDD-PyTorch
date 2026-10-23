@@ -63,6 +63,35 @@ Variables opcionales: `CONDA_ENV`, `CONDA_SH`, `REMOTE_ROOT`, `LOGS_DIR`, `EXTRA
 
 Los resultados (checkpoints) quedan en `src/results/{STRUCT}_<nombre del config>/`.
 
+## Variante con el volumen como entrada (`VolumeDifference`)
+
+`configs/AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolume.yml` es igual
+al config SVDD normal pero con `VolumeDifference: True`: el volumen de cada estructura
+(voxels de la máscara) se concatena a las features de su hemisferio antes de la capa
+`fcSVDD1`. Los volúmenes se normalizan como z-score con la media y el desvío del conjunto
+de entrenamiento (se calculan al inicializar `c` y quedan en el checkpoint).
+
+Para entrenarla reutilizando el autoencoder que ya existe en `src/results` (no se vuelve a
+entrenar, así la comparación con la corrida sin volumen es limpia), y sin pisar nada:
+
+```bash
+SVDD_CONFIG=AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolume.yml \
+SKIP_AE=1 RUN_TAG=_volume nohup ./run_all_structures.sh HIP > run_volume.out 2>&1 &
+```
+
+Log en `logs/HIP_volume.log`, resultados en `src/results/HIP_AE_..._16filtersSVDDVolume/`.
+Para evaluarla por fuente (OASIS / ADNI / HEC) y contra las referencias sin red:
+
+```bash
+cd src/trainer
+python ../../tools/evaluate_svdd.py --structure HIP \
+  --config AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolume.yml
+```
+
+`train_SVDD.py --skip-ae-training` / `SKIP_AE=1` hacen que el SVDD parta del último
+checkpoint del autoencoder de esa estructura en lugar de entrenar uno nuevo.
+
+
 ## Visdom
 
 Los loggers usan Visdom (puerto 8097). El servidor se define en `configs/visdom.yml`

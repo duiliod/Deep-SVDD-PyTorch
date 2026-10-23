@@ -43,10 +43,23 @@ class ModelTrainerSVDD(pl.LightningModule):
         if c is not None:
             self.c = c.to(self.device)
 
+    def init_volume_stats(self, net):
+        """Mean/std (in voxels) of the structure volumes over the whole training set, shared by both
+        hemispheres, so the volume input of the network is a z-score instead of the old fixed
+        (v-395)/4650. Saved in the checkpoint as buffers of the network."""
+        vols = []
+        for inputs, _ in self._dataModule.train_dataloader():
+            vols.append(torch.stack([inputs[1], inputs[2]], 1).double())
+        vols = torch.cat(vols)
+        net.set_volume_stats(vols.mean().item(), vols.std().item())
+        print('volume stats: mean %.1f voxels, std %.1f voxels, %d entries' % (vols.mean().item(), vols.std().item(), len(vols)))
+
     def init_center_c_full(self, net, eps=None):
         """Center c = mean of the network outputs over the WHOLE training set (as in the original
         Deep SVDD). The previous version used the first batch of 12 samples only."""
         eps = self._center_eps if eps is None else eps
+        if getattr(net, 'VolumeDifference', False):
+            self.init_volume_stats(net)
         c = torch.zeros(net.rep_dim, device=self.device)
         n_samples = 0
         was_training = net.training

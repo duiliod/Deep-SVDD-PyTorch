@@ -28,6 +28,13 @@ class Encoder(nn.Module):
 
         if self.VolumeDifference:
             n_hippo_Volume = 1
+            # Volume normalization (voxels -> z-score). The defaults are the old fixed constants
+            # (v-395)/4650, which squeezed the volumes of every structure into a band ~20x narrower
+            # than the image features, so the volume could not influence the output. The real
+            # statistics of the train set are set by ModelTrainerSVDD.init_center_c_full() before
+            # c is computed, and travel with the checkpoint (they are buffers).
+            self.register_buffer('volume_mean', torch.tensor(395.0))
+            self.register_buffer('volume_std', torch.tensor(4650.0))
 
         if self.fc_out:
             self.fcSVDD1 = nn.Linear(n_hippo_Volume + filters[-1]*voxel*voxel*voxel, self.fc_out, bias=False)
@@ -58,7 +65,7 @@ class Encoder(nn.Module):
         out1 = out.view(out.size(0), -1)     #torch.Size([12, 32768])
 
         if self.VolumeDifference:
-            left_volume = ((left_volume - 395)/4650)
+            left_volume = ((left_volume.float() - self.volume_mean)/self.volume_std)
             out1 = torch.cat((out1, torch.unsqueeze(left_volume, 1)), 1) #adding the right volume  #torch.Size([12, 32769])
 
         if self.fc_out:
@@ -79,7 +86,7 @@ class Encoder(nn.Module):
         out2 = out.view(out.size(0), -1)     #torch.Size([12, 32768])
 
         if self.VolumeDifference:
-            right_volume = ((right_volume - 395)/4650)
+            right_volume = ((right_volume.float() - self.volume_mean)/self.volume_std)
             out2 = torch.cat((out2, torch.unsqueeze(right_volume, 1)), 1) #adding the right volume  #torch.Size([12, 32769])
 
         if self.fc_out:
@@ -141,6 +148,11 @@ class LeNet_ELU_SVDD(BaseNet):
         out = self.encoder(inputs)
 
         return out
+
+    def set_volume_stats(self, mean, std):
+        '''Set the volume normalization (only when VolumeDifference is on).'''
+        self.encoder.volume_mean.fill_(float(mean))
+        self.encoder.volume_std.fill_(float(std))
 
     def predict(self, inputs):
         print('predict_LeNet_ELU_SVDD')

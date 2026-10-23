@@ -19,6 +19,14 @@
 #   LOGS_DIR     where logs and .done markers go     (default: <repo>/logs)
 #   EXTRA_ARGS   extra args for train_SVDD.py        (e.g. "--fast-dev-run --no-pretrained")
 #   DRY_RUN=1    only print what would be done
+#   SVDD_CONFIG  SVDD config file inside configs/    (default: ...16filtersSVDD.yml)
+#   SKIP_AE=1    do not train the autoencoder: reuse the latest one already in src/results
+#                (only the SVDD results of the run are moved away when it is repeated)
+#   RUN_TAG      suffix of the log and .done files   (e.g. RUN_TAG=_volume -> logs/HIP_volume.log)
+#
+# Example: Deep SVDD with the volumes as input (VolumeDifference) on the autoencoder already trained
+#   SVDD_CONFIG=AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolume.yml SKIP_AE=1 \
+#   RUN_TAG=_volume nohup ./run_all_structures.sh HIP > run_volume.out 2>&1 &
 
 set -u
 
@@ -39,7 +47,13 @@ EXTRA_ARGS="${EXTRA_ARGS:-}"
 TRAINER_DIR="$ROOT/src/trainer"
 RESULTS_DIR="$ROOT/src/results"
 CFG_AE="../../configs/AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filters.yml"
-CFG_SVDD="../../configs/AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDD.yml"
+SVDD_CONFIG="${SVDD_CONFIG:-AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDD.yml}"
+CFG_SVDD="../../configs/$SVDD_CONFIG"
+SKIP_AE="${SKIP_AE:-}"
+RUN_TAG="${RUN_TAG:-}"
+if [ -n "$SKIP_AE" ]; then EXTRA_ARGS="$EXTRA_ARGS --skip-ae-training"; fi
+if [ ! -f "$ROOT/configs/$SVDD_CONFIG" ]; then echo "ERROR: $ROOT/configs/$SVDD_CONFIG not found" >&2; exit 1; fi
+SVDD_EXP="${SVDD_CONFIG%.yml}"; SVDD_EXP="${SVDD_EXP%.yaml}"   # experiment name = <structure>_<config name>
 VISDOM_PORT=8097
 
 if [ "$#" -gt 0 ]; then
@@ -61,7 +75,7 @@ fmt_elapsed() { printf '%dh%02dm' $(( $1 / 3600 )) $(( ($1 % 3600) / 60 )); }
 if [ -n "${DRY_RUN:-}" ]; then
   echo "[dry-run] conda env: $CONDA_ENV   logs: $LOGS_DIR   remote root: $REMOTE_ROOT"
   for S in "${STRUCTURES[@]}"; do
-    if [ -f "$LOGS_DIR/$S.done" ]; then
+    if [ -f "$LOGS_DIR/$S$RUN_TAG.done" ]; then
       echo "[dry-run] $S: already done -> would skip"
     else
       echo "[dry-run] $S: cd $TRAINER_DIR && python -u train_SVDD.py --configAE $CFG_AE --configSVDD $CFG_SVDD --structure $S $EXTRA_ARGS"
@@ -108,8 +122,8 @@ fi
 summary=()
 failed=0
 for S in "${STRUCTURES[@]}"; do
-  DONE="$LOGS_DIR/$S.done"
-  LOG="$LOGS_DIR/$S.log"
+  DONE="$LOGS_DIR/$S$RUN_TAG.done"
+  LOG="$LOGS_DIR/$S$RUN_TAG.log"
 
   if [ -f "$DONE" ]; then
     echo "[$(ts)] $S: already done, skipping"
@@ -118,7 +132,9 @@ for S in "${STRUCTURES[@]}"; do
   fi
 
   # leftovers of an interrupted run would be picked up as version_0 by lightning.py
-  for d in "$RESULTS_DIR/${S}_"*; do
+  # (with SKIP_AE only this run's SVDD folder is touched: the autoencoder must stay)
+  if [ -n "$SKIP_AE" ]; then leftovers=("$RESULTS_DIR/${S}_${SVDD_EXP}"); else leftovers=("$RESULTS_DIR/${S}_"*); fi
+  for d in "${leftovers[@]}"; do
     [ -e "$d" ] || continue
     mkdir -p "$RESULTS_DIR/_incomplete"
     mv "$d" "$RESULTS_DIR/_incomplete/$(basename "$d")_$(date +%Y%m%d_%H%M%S)"

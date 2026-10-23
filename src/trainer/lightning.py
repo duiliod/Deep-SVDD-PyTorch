@@ -81,14 +81,16 @@ def getModules(config, fast_dev_run=False, accelerator="gpu") -> Tuple[Trainer, 
     return trainer, modelTrainer, dataModule
 
 
-def getModulesSVDD(config, fast_dev_run=False, accelerator="gpu", pretrained=True) -> Tuple[Trainer, torch.nn.Module, DataModule.DataModule]:
+def getModulesSVDD(config, fast_dev_run=False, accelerator="gpu", pretrained=True, ae_name=None) -> Tuple[Trainer, torch.nn.Module, DataModule.DataModule]:
     dataModule = DataModule.get(config['DataModule'])
     model_encoder = Models.get_SVDD(config['Model'])
     # print(model_encoder)
 
     if pretrained:
         print('Initialize the Deep SVDD network weights from the encoder weights of the pretraining autoencoder. ')
-        checkpoint = find_last_checkpoint(config['name'][:-4])
+        # ae_name: experiment name of the autoencoder. By default it is the SVDD experiment name
+        # without its trailing 'SVDD' (the two configs only differ in that suffix).
+        checkpoint = find_last_checkpoint(ae_name if ae_name else config['name'][:-4])
         print(checkpoint)
         load_pretrained_encoder(model_encoder, checkpoint)
         print('Finish loading...')
