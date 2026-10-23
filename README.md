@@ -116,6 +116,30 @@ python ../../tools/evaluate_svdd.py --structure HIP \
 `train_SVDD.py --skip-ae-training` / `SKIP_AE=1` hacen que el SVDD parta del último
 checkpoint del autoencoder de esa estructura en lugar de entrenar uno nuevo.
 
+## Variante con el volumen en la salida (`VolumePassthrough`)
+
+`configs/AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolumePass.yml` agrega
+`VolumePassthrough: 1.0` (alpha). La salida de la red pasa a ser `[f(x), alpha * v]`, con
+`v = (relu(-z_volumen_total), relu(z_asimetria))` calculado a partir de los volúmenes **sin
+parámetros** (media/desvío del train, guardados en el checkpoint). El centro `c` tiene 34
+dimensiones y el score es `||f - c||^2 + alpha^2 ||v - c_v||^2`.
+
+Por qué fijo y no entrenable: Deep SVDD minimiza `||salida - c||^2`, así que un camino
+entrenable del volumen a la salida se aprendería a ignorar. Con `v` fijo, lo que se entrena
+(`f`) no cambia y el volumen entra al score con el peso que fija `alpha`.
+
+Para entrenarla con el autoencoder ya existente (rama `local`):
+
+```bash
+SVDD_CONFIG=AE_LeNet_bothHippocampiFlip_lr_001_rd_32_MSE_16filtersSVDDVolumePass.yml \
+SKIP_AE=1 RUN_TAG=_volpass nohup ./run_all_structures.sh HIP > run_volpass.out 2>&1 &
+```
+
+`tools/evaluate_svdd.py --config <ese config>` imprime el AUC por fuente de la parte SVDD sola,
+de `svdd + a·volumen` para varios pesos, de `volume features only` y de `vol+asym`.
+El `alpha` con el que se entrena cambia la escala de `c` pero no el score de la parte `f`.
+
+
 
 ## Logs: TensorBoard en lugar de Visdom
 

@@ -44,23 +44,32 @@ class ModelTrainerSVDD(pl.LightningModule):
             self.c = c.to(self.device)
 
     def init_volume_stats(self, net):
-        """Mean/std (in voxels) of the structure volumes over the whole training set, shared by both
-        hemispheres, so the volume input of the network is a z-score instead of the old fixed
-        (v-395)/4650. Saved in the checkpoint as buffers of the network."""
+        """Statistics of the structure volumes over the whole training set. They are stored in the network
+        (buffers, so they travel with the checkpoint):
+          - VolumeDifference: mean/std (voxels, shared by both hemispheres) of the volume input, a z-score
+            instead of the old fixed (v-395)/4650.
+          - VolumePassthrough: mean/std of (total volume, |L-R|/(L+R)) for the parameter-free features."""
         vols = []
         for inputs, _ in self._dataModule.train_dataloader():
             vols.append(torch.stack([inputs[1], inputs[2]], 1).double())
         vols = torch.cat(vols)
-        net.set_volume_stats(vols.mean().item(), vols.std().item())
-        print('volume stats: mean %.1f voxels, std %.1f voxels, %d entries' % (vols.mean().item(), vols.std().item(), len(vols)))
+        if getattr(net, 'VolumeDifference', False):
+            net.set_volume_stats(vols.mean().item(), vols.std().item())
+            print('volume stats: mean %.1f voxels, std %.1f voxels, %d entries' % (vols.mean().item(), vols.std().item(), len(vols)))
+        if getattr(net, 'VolumePassthrough', 0) > 0:
+            f = torch.stack([vols.sum(1), (vols[:, 0] - vols[:, 1]).abs() / vols.sum(1)], 1)
+            net.set_volume_feature_stats(f.mean(0), f.std(0))
+            print('volume passthrough: alpha=%g, total volume %.1f +- %.1f voxels, asymmetry %.4f +- %.4f'
+                  % (net.VolumePassthrough, f[:, 0].mean(), f[:, 0].std(), f[:, 1].mean(), f[:, 1].std()))
 
     def init_center_c_full(self, net, eps=None):
         """Center c = mean of the network outputs over the WHOLE training set (as in the original
         Deep SVDD). The previous version used the first batch of 12 samples only."""
         eps = self._center_eps if eps is None else eps
-        if getattr(net, 'VolumeDifference', False):
+        if getattr(net, 'VolumeDifference', False) or getattr(net, 'VolumePassthrough', 0) > 0:
             self.init_volume_stats(net)
-        c = torch.zeros(net.rep_dim, device=self.device)
+        n_out = net.rep_dim + (2 if getattr(net, 'VolumePassthrough', 0) > 0 else 0)
+        c = torch.zeros(n_out, device=self.device)
         n_samples = 0
         was_training = net.training
         net.eval()
@@ -73,8 +82,10 @@ class ModelTrainerSVDD(pl.LightningModule):
         net.train(was_training)
         c /= n_samples
         if eps > 0:
-            c[(abs(c) < eps) & (c < 0)] = -eps
-            c[(abs(c) < eps) & (c > 0)] = eps
+            # only the learned part of the output (the fixed volume features can not be matched with zero weights)
+            cl = c[:net.rep_dim]
+            cl[(abs(cl) < eps) & (cl < 0)] = -eps
+            cl[(abs(cl) < eps) & (cl > 0)] = eps
         print('center c: mean |c|=%.4f, %d samples' % (c.abs().mean().item(), n_samples))
         return c
 

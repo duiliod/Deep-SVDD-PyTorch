@@ -129,6 +129,23 @@ def main():
         scores['dist-to-c'] = ((out_te - center.numpy()) ** 2).sum(1)
     else:
         print('NOTE: this checkpoint has no saved center, dist-to-c is not available')
+    rep = net.encoder.fcSVDD2.out_features if net.encoder.fc_out else net.encoder.fcSVDD.out_features
+    alpha = getattr(net, 'VolumePassthrough', 0) or 0
+    if alpha > 0:
+        # the output is [f(x), alpha * v]: the learned part and the fixed volume features are scored separately
+        v_tr, v_te = out_tr[:, rep:] / alpha, out_te[:, rep:] / alpha
+        cv = v_tr.mean(0)
+        pv = ((v_te - cv) ** 2).sum(1)
+        if center is not None:
+            d_learned = ((out_te[:, :rep] - center.numpy()[:rep]) ** 2).sum(1)
+            scores['dist-to-c (SVDD part only)'] = d_learned
+            print('median ||f-c||^2 = %.4g | median ||v-cv||^2 = %.4g' % (np.median(d_learned), np.median(pv)))
+            for a in [0.1, 0.3, 1.0, 3.0]:
+                scores['svdd + a=%g volume' % a] = d_learned + a ** 2 * pv
+        scores['volume features only'] = pv
+        out_tr, out_te = out_tr[:, :rep], out_te[:, :rep]
+        if 'dist-to-c' in scores:
+            scores['dist-to-c (alpha=%g, as trained)' % alpha] = scores.pop('dist-to-c')
     scores['mahalanobis'] = mahalanobis(out_tr, out_te)
     scores['volume'] = -z[:, 0]
     scores['asymmetry'] = z[:, 1]
@@ -137,9 +154,9 @@ def main():
     print('network output on train: mean norm %.4g, std across samples %.4g'
           % (np.linalg.norm(out_tr, axis=1).mean(), out_tr.std(0).mean()))
     groups = ['OASIS', 'ADNI', 'HEC']
-    print('\n%-12s %s   ALL' % ('AUC', ' '.join('%-6s' % g for g in groups)))
+    print('\n%-34s %s   ALL' % ('AUC', ' '.join('%-6s' % g for g in groups)))
     for name, s in scores.items():
-        print('%-12s %s   %.3f' % (name, ' '.join('%.3f ' % auc(y, s, src == g) for g in groups), roc_auc_score(y, s)))
+        print('%-34s %s   %.3f' % (name, ' '.join('%.3f ' % auc(y, s, src == g) for g in groups), roc_auc_score(y, s)))
     for g in groups:
         m = src == g
         print('%s: n=%d (CN %d, anomalous %d)' % (g, m.sum(), (y[m] == 0).sum(), (y[m] == 1).sum()))
