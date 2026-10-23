@@ -8,7 +8,7 @@ from sklearn.manifold import TSNE
 import seaborn as sns
 
 class ModelTrainerSVDD(pl.LightningModule):
-    def __init__(self, model, optimizer, loss, dataModule, monitor, activate_loss=None, **config) -> None:
+    def __init__(self, model, optimizer, loss, dataModule, monitor, activate_loss=None, center_eps=0.1, **config) -> None:
         super().__init__()
         self._model = model
         self._optimizer = optimizer
@@ -17,6 +17,7 @@ class ModelTrainerSVDD(pl.LightningModule):
         self._monitor = monitor
         self._config = config
         self._activate_loss = activate_loss
+        self._center_eps = center_eps   # coordinates of c closer to 0 than this are pushed to +-eps (0 disables it)
 
 
         # assert objective in ('one-class', 'soft-boundary'), "Objective must be either 'one-class' or 'soft-boundary'."
@@ -32,6 +33,37 @@ class ModelTrainerSVDD(pl.LightningModule):
         # # Optimization parameters
         # self.warm_up_n_epochs = 10  # number of training epochs for soft-boundary Deep SVDD before radius R gets updated
 
+
+    def on_save_checkpoint(self, checkpoint):
+        # c is part of the model: without it the scores of a saved model cannot be reproduced
+        checkpoint['svdd_center'] = None if self.c is None else self.c.detach().cpu()
+
+    def on_load_checkpoint(self, checkpoint):
+        c = checkpoint.get('svdd_center')
+        if c is not None:
+            self.c = c.to(self.device)
+
+    def init_center_c_full(self, net, eps=None):
+        """Center c = mean of the network outputs over the WHOLE training set (as in the original
+        Deep SVDD). The previous version used the first batch of 12 samples only."""
+        eps = self._center_eps if eps is None else eps
+        c = torch.zeros(net.rep_dim, device=self.device)
+        n_samples = 0
+        was_training = net.training
+        net.eval()
+        with torch.no_grad():
+            for inputs, _ in self._dataModule.train_dataloader():
+                inputs = [inputs[0].to(self.device), inputs[1].to(self.device), inputs[2].to(self.device)]
+                outputs = net(inputs)
+                n_samples += outputs.shape[0]
+                c += torch.sum(outputs, dim=0)
+        net.train(was_training)
+        c /= n_samples
+        if eps > 0:
+            c[(abs(c) < eps) & (c < 0)] = -eps
+            c[(abs(c) < eps) & (c > 0)] = eps
+        print('center c: mean |c|=%.4f, %d samples' % (c.abs().mean().item(), n_samples))
+        return c
 
     def to(self, device):
         super().to(device)
@@ -63,11 +95,14 @@ class ModelTrainerSVDD(pl.LightningModule):
         '''
         x,y = batch
         #x=x.to(torch.float)
-        y_hat = self._model.forward(x)  
+        y_hat = self._model.forward(x)
+        # collapse monitors: out_norm -> 0 or out_std -> 0 means the network maps every sample to one point
+        self.log('out_norm', y_hat.detach().norm(dim=1).mean(), on_step=False, on_epoch=True)
+        self.log('out_std', y_hat.detach().std(dim=0).mean(), on_step=False, on_epoch=True)
 
         if self.c is None:
             print('Initializing center c...')
-            self.c = self.init_center_c(batch, self._model)
+            self.c = self.init_center_c_full(self._model)
             print('Center c initialized.')
 
         scores = torch.sum((y_hat - self.c) ** 2, dim=1)
