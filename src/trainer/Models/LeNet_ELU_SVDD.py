@@ -6,8 +6,19 @@ import torch.nn.functional as F
 
 
 class Encoder(nn.Module):
-    def __init__(self, num_input_channels, rep_dim, filters, use_batchnorm, activation_unit, voxel, hipo_diff, fc_out, VolumeDifference):
+    def __init__(self, num_input_channels, rep_dim, filters, use_batchnorm, activation_unit, voxel, hipo_diff, fc_out, VolumeDifference, VolumePassthrough=0.0):
         super().__init__()
+
+        # VolumePassthrough = alpha > 0: the output of the network is [f(x), alpha * v(volumes)] where
+        # v = (relu(-z_total_volume), relu(z_asymmetry)) is computed from the volumes WITHOUT parameters.
+        # Deep SVDD minimises ||out - c||^2, so a trainable path from the volumes to the output would
+        # just be driven to a constant; a fixed path cannot collapse, it only adds
+        # alpha^2 * ||v - c_v||^2 to the anomaly score (c_v = mean of v on the train set).
+        self.volume_passthrough = float(VolumePassthrough or 0.0)
+        if self.volume_passthrough > 0:
+            # train-set statistics of (total volume, |L-R|/(L+R)), set by ModelTrainerSVDD.init_volume_stats
+            self.register_buffer('vfeat_mean', torch.zeros(2))
+            self.register_buffer('vfeat_std', torch.ones(2))
 
 
         # Downsampling branch
@@ -51,8 +62,17 @@ class Encoder(nn.Module):
         for i, block in enumerate(self.down_blocks):
             self.add_module(f"down_block_{i}", block)
 
+    def volume_features(self, left_volume, right_volume):
+        '''Fixed (parameter-free) one-sided anomaly features of the volumes: low total volume, high asymmetry.'''
+        left_volume, right_volume = left_volume.float(), right_volume.float()
+        total = left_volume + right_volume
+        f = torch.stack([total, torch.abs(left_volume - right_volume) / total], 1)
+        z = (f - self.vfeat_mean) / self.vfeat_std
+        return torch.stack([torch.relu(-z[:, 0]), torch.relu(z[:, 1])], 1)
+
     def forward(self, inputs):
         inputs, left_volume, right_volume = inputs[0], inputs[1], inputs[2] #$$$#
+        raw_left_volume, raw_right_volume = left_volume, right_volume   # (left_volume is normalized below)
         # Downsampling branch for one hippocampus
         inputs1 = inputs[:,0,:,:,:].to(torch.float)
         out = torch.unsqueeze(inputs1, 1) #torch.Size([12, 1, 64, 64, 64])
@@ -115,6 +135,8 @@ class Encoder(nn.Module):
 
         #out = self.fcSVDD2(out)  #torch.Size([12, 128])
         #out = self.fcSVDD(out)
+        if self.volume_passthrough > 0:
+            out = torch.cat((out, self.volume_passthrough * self.volume_features(raw_left_volume, raw_right_volume)), 1)
         return out
 
 
@@ -139,7 +161,8 @@ class LeNet_ELU_SVDD(BaseNet):
         self.fc_out = self.fc_out
         self.hipo_diff = self.hipo_diff
         self.VolumeDifference = self.VolumeDifference
-        self.encoder = encoder_class(self.num_input_channels, self.rep_dim,  self.filters, self.use_batchnorm, self.activation_unit, self.voxel, self.hipo_diff, self.fc_out, self.VolumeDifference)
+        self.VolumePassthrough = self.VolumePassthrough
+        self.encoder = encoder_class(self.num_input_channels, self.rep_dim,  self.filters, self.use_batchnorm, self.activation_unit, self.voxel, self.hipo_diff, self.fc_out, self.VolumeDifference, self.VolumePassthrough)
         
 
     def forward(self, inputs):
@@ -153,6 +176,11 @@ class LeNet_ELU_SVDD(BaseNet):
         '''Set the volume normalization (only when VolumeDifference is on).'''
         self.encoder.volume_mean.fill_(float(mean))
         self.encoder.volume_std.fill_(float(std))
+
+    def set_volume_feature_stats(self, mean, std):
+        '''Train-set mean/std of (total volume, asymmetry) used by VolumePassthrough.'''
+        self.encoder.vfeat_mean.copy_(torch.as_tensor(mean, dtype=torch.float))
+        self.encoder.vfeat_std.copy_(torch.as_tensor(std, dtype=torch.float))
 
     def predict(self, inputs):
         print('predict_LeNet_ELU_SVDD')

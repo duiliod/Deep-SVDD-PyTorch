@@ -35,6 +35,8 @@ class EncoderDecoderNetwork(nn.Module):
         self.hipo_diff = args.get('hipo_diff', True)
         self.fc_out = args.get('fc_out', True)
         self.VolumeDifference = args.get('VolumeDifference', True)
+        # alpha > 0: append fixed volume/asymmetry features to the Deep SVDD output (see LeNet_ELU_SVDD.Encoder)
+        self.VolumePassthrough = args.get('VolumePassthrough', 0.0)
 
     @property
     def device(self):
